@@ -220,6 +220,7 @@ tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
     std::vector<size_t> new_shape=_meta.shape;
     new_shape[dim]=end-start;//左闭右开
     TensorMeta meta{_meta.dtype,new_shape,_meta.strides};
+    //只改变这一维度的形状,strides不变的
     return std::shared_ptr<Tensor>(new Tensor(meta, _storage,new_offset));
 }
 
