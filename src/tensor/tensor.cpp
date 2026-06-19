@@ -164,27 +164,73 @@ void Tensor::debug() const {
 }
 
 bool Tensor::isContiguous() const {
-    TO_BE_IMPLEMENTED();
+    ptrdiff_t expected=1;
+    size_t nd=ndim();
+    if(nd==0)return true;
+    const auto &s =_meta.shape;
+    const auto &st =_meta.strides;
+    for(size_t i=nd;i>0;i--){//减少溢出隐患nd-1
+      if(s[i-1]>1&&st[i-1]!=expected){
+        return false;
+      }
+      expected*=s[i-1];
+    }
     return true;
 }
 
 tensor_t Tensor::permute(const std::vector<size_t> &order) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+  CHECK_ARGUMENT(order.size()==ndim(),"order size must match ndim");
+  size_t ndim=order.size();
+  std::vector<size_t> new_shape(ndim);
+  std::vector<ptrdiff_t> new_strides(ndim);
+  for(size_t i=0;i<ndim;i++){
+    new_shape[i]=_meta.shape[order[i]];
+    new_strides[i]=_meta.strides[order[i]];//只是改变计算顺序,这样就不连续了,根据步长公式两个得一块变
+  }
+  TensorMeta meta{_meta.dtype,new_shape,new_strides};
+  return std::shared_ptr<Tensor>(new Tensor(meta, _storage,_offset));
 }
 
 tensor_t Tensor::view(const std::vector<size_t> &shape) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    ASSERT(isContiguous(),"tensor must be contiguous");
+    size_t old_num=numel();
+    size_t new_num=1;
+    for(auto x:shape){
+      new_num*=x;
+    }
+    CHECK_ARGUMENT(old_num==new_num,"total elements must match");
+    size_t ndim=shape.size();
+    size_t stride=1;
+    std::vector<ptrdiff_t> strides(ndim);
+    for(size_t i=ndim;i>0;i--){
+      strides[i-1]=stride;//实际上就是改stride
+      stride*=shape[i-1];
+    }
+    TensorMeta meta{_meta.dtype,shape,strides};
+    return std::shared_ptr<Tensor>(new Tensor(meta, _storage,_offset));
 }
 
 tensor_t Tensor::slice(size_t dim, size_t start, size_t end) const {
-    TO_BE_IMPLEMENTED();
-    return std::shared_ptr<Tensor>(new Tensor(_meta, _storage));
+    CHECK_ARGUMENT(dim<ndim(),"dim out  of range");
+    CHECK_ARGUMENT(start<=end,"start must less than end");
+    CHECK_ARGUMENT(end<=_meta.shape[dim],"end out of range");
+    //stride不变,只移动起始位置,缩小shape  每次只一个维度
+    size_t new_offset=_offset+start*_meta.strides[dim]*elementSize();
+    //怎理解stride呢 我们把在它后面的打包乘在一起,那么这一行(维度)的元素就是stride[dim]
+    std::vector<size_t> new_shape=_meta.shape;
+    new_shape[dim]=end-start;//左闭右开
+    TensorMeta meta{_meta.dtype,new_shape,_meta.strides};
+    return std::shared_ptr<Tensor>(new Tensor(meta, _storage,new_offset));
 }
 
 void Tensor::load(const void *src_) {
-    TO_BE_IMPLEMENTED();
+    size_t total_bytes=numel()*elementSize();
+    if(deviceType()==LLAISYS_DEVICE_CPU){
+      std::memcpy(data(),src_,total_bytes);
+    }else{
+      core::context().setDevice(deviceType(),deviceId());
+      core::context().runtime().api()->memcpy_sync(data(),src_,total_bytes,LLAISYS_MEMCPY_H2D);
+    }
 }
 
 tensor_t Tensor::contiguous() const {
